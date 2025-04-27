@@ -1158,7 +1158,7 @@ Theorem partite_ea_def = REWRITE_RULE [gen_partite_ea_def] partite_ea
 (* If a partition exists, then an equivalent partition exists without the     *)
 (* empty set in it                                                            *)
 (* -------------------------------------------------------------------------- *)
-Theorem partition_delete_empty:
+Theorem gen_partite_ea_delete_empty:
   ∀r g v.
     gen_partite_ea r g v ⇔ gen_partite_ea r g (v DELETE ∅) ∧ CARD v ≤ r
 Proof  
@@ -1211,18 +1211,77 @@ Proof
 QED
 
 (* -------------------------------------------------------------------------- *)
-(* If each member of a                                                        *)
-(*                                                                            *)
-(* Could be made more general                                                 *)
+(* If a partition exists, then all components of that partition are disjoint  *)
 (* -------------------------------------------------------------------------- *)
-Theorem CARD_BIGUNION_LEQ_1:
-  ∀S n.
-    (∀s.
-       s ∈ S ⇒ (FINITE s ∧ CARD s ≤ 1)) ⇒
-    CARD (BIGUNION S) ≤ CARD S
+Theorem gen_partite_disjoint:
+  ∀r g v s1 s2.
+    gen_partite r g v ∧
+    s1 ∈ v ∧
+    s2 ∈ v ∧
+    s1 ≠ s2
+    ⇒ DISJOINT s1 s2
 Proof
-  partition_delete_empty
   rpt strip_tac
+  >> irule partitions_DISJOINT
+  >> gvs[]
+  >- (qexistsl [‘v’, ‘nodes g’]
+      >> gvs[]
+      >> gvs[gen_partite_def]
+     )
+QED
+
+
+(* -------------------------------------------------------------------------- *)
+(* If a partition exists, then all components of that partition are disjoint  *)
+(* -------------------------------------------------------------------------- *)
+Theorem gen_partite_ea_disjoint:
+  ∀r g v s1 s2.
+    gen_partite_ea r g v ∧
+    s1 ∈ v ∧
+    s2 ∈ v ∧
+    s1 ≠ s2
+    ⇒ DISJOINT s1 s2
+Proof
+  gvs[gen_partite_ea_gen_partite]
+  >> rpt strip_tac
+  >> Cases_on ‘s1 = ∅’ >> Cases_on ‘s2 = ∅’ >> gvs[]
+  >> irule gen_partite_disjoint
+  >> gvs[]
+  >> qexistsl [‘g’, ‘CARD (v DELETE ∅)’, ‘v DELETE ∅’]
+  >> gvs[]
+QED
+
+(* -------------------------------------------------------------------------- *)
+(* Every component of a partition is finite                                   *)
+(* -------------------------------------------------------------------------- *)
+Theorem gen_partite_ea_finite_component:
+  ∀r g v s.
+    gen_partite_ea r g v ∧
+    s ∈ v ⇒
+    FINITE s
+Proof
+  rpt strip_tac
+  >> gvs[gen_partite_ea_def]
+  >> gvs[partitions_thm]
+  >> Cases_on ‘s’ >> gvs[]
+  >> last_x_assum $ qspec_then ‘x INSERT t’ assume_tac
+  >> gvs[]
+  >> irule SUBSET_FINITE
+  >> ‘FINITE V’ by gvs[FINITE_nodes]
+  >> qexists ‘V’
+  >> gvs[]
+QED
+
+(* -------------------------------------------------------------------------- *)
+(* Every component of a partition is finite                                   *)
+(* -------------------------------------------------------------------------- *)
+Theorem gen_partite_finite_component:
+  ∀r g v s.
+    gen_partite r g v ∧
+    s ∈ v ⇒
+    FINITE s
+Proof
+  metis_tac[gen_partite_gen_partite_ea, gen_partite_ea_finite_component]
 QED
 
 (* -------------------------------------------------------------------------- *)
@@ -1234,10 +1293,12 @@ Theorem gen_partite_ea_pigeonhole_principle:
     gen_partite_ea r g v ∧ r < CARD (nodes g) ⇒
     ∃s. s ∈ v ∧ FINITE s ∧ 2 ≤ CARD s
 Proof
-  PURE_ONCE_REWRITE_TAC[partition_delete_empty]
-  >> rpt strip_tac
+  rpt strip_tac
+  >> drule (iffLR gen_partite_ea_delete_empty) >> rpt strip_tac 
   >> CCONTR_TAC
   >> gvs[]
+  >> sg ‘FINITE (v DELETE ∅)’
+  >- gvs[gen_partite_ea_finite, SF SFY_ss, Excl "FINITE_DELETE"]
   (* Thanks to Chun Tian for this proof idea using BIGUNION *)
   >> drule gen_partite_ea_bigunion
   >> rpt strip_tac
@@ -1247,8 +1308,23 @@ Proof
   >> qsuff_tac ‘CARD (BIGUNION (v DELETE ∅)) = CARD (v DELETE ∅)’
   >- (rpt strip_tac
       >> gvs[]
-      >> sg ‘r < CARD v’
-      >- gvs[]
+      >> sg ‘FINITE (v DELETE ∅)’
+      >- metis_tac[gen_partite_ea_finite]
+      >> gvs[]
+      >> Cases_on ‘∅ ∈ v’ >> gvs[]
+     )
+  >> irule (SIMP_RULE (srw_ss()) [] (SPEC “1 : num” CARD_BIGUNION_SAME_SIZED_SETS))
+  >> rw[]
+  >- (irule gen_partite_ea_disjoint
+      >> gvs[SF SFY_ss]
+     )
+  >- metis_tac[gen_partite_ea_finite_component]
+  >> first_x_assum $ qspec_then ‘e’ assume_tac
+  >> gvs[]
+  >- metis_tac[gen_partite_ea_finite_component]
+  >> Cases_on ‘CARD e’ >> gvs[]
+  >> ‘FINITE e’ by metis_tac[gen_partite_ea_finite_component]
+  >> gvs[]
 QED
 
 (* -------------------------------------------------------------------------- *)
@@ -1267,6 +1343,16 @@ Theorem partition_fill_empty_component:
                                        
                                        gen_partite_ea r g v ∧ r < CARD (nodes g) ⇒ ∃w. gen_partite_ea r g w ∧
                                                                                        CARD w = SUC (CARD v)
+Proof
+  rpt strip_tac
+QED
+
+Theorem partite_leq:
+  ∀r g s.
+    partite r g ∧
+    r ≤ s ∧
+    CARD (nodes g) = ⇒
+    partite s g
 Proof
 QED
 
@@ -1292,29 +1378,20 @@ Proof
   (* prove.                                                                   *)
   (* *)
   (* We are proving partite_ea ∧ CARD ⇒ partite *)
+  >> drule (iffLR gen_partite_ea_delete_empty)
+  >> rpt strip_tac
+  >> qpat_x_assum ‘gen_partite_ea r g v’ kall_tac
   >> rpt $ pop_assum mp_tac >> SPEC_TAC (“g : fsgraph”, “g : fsgraph”)
   >> SPEC_TAC
      (“v : (unit + num -> bool) -> bool”, “v : (unit + num -> bool) -> bool”)
   >> Induct_on ‘r’ >> rpt strip_tac >> gvs[] (* Induct on the partite number *)
   >- gvs[gen_partite_0, gen_partite_ea_0] (* Partite number 0 is trivial *)
-  >> Cases_on ‘v’ (* Take a component from the partition*)
+  >> namedCases_on ‘v’ ["", "s v"] (* Take a component from the partition*)
   >- gvs[gen_partite_ea_def] (* Empty partition is trivial *)
-  (* If x is nonempty, then we can simply use the same partition as in the
-      induction: this component can be used regards of whether empty
-      components are allowed*)
-  >> Cases_on ‘x ≠ ∅’
-  >- (last_x_assum $ qspecl_then [‘t’, ‘g’] assume_tac (* Use inductive
-      hypothesis on partition excluding x *)
-      >> sg ‘gen_partite_ea r g t’
-      >- (pop_assum kall_tac
-          >> ‘FINITE (x INSERT t)’ by metis_tac[gen_partite_ea_finite]
-          >> gvs[gen_partite_ea_def]
-          >> rw[gen_partite_ea_def]
-          >> sg ‘FINITE t’ >-
-         )
-         qexists ‘x INSERT t’ (* Use the same partition *)
-      >> 
-     )
+  (* There is component of the partition with at least two elements by the
+     pigeonhole principle.
+     Thanks to Chun Tian for rough proof sketch*)
+  >> drule gen_partite_ea_pigeonhole_principle
 QED
 
 (* -------------------------------------------------------------------------- *)
