@@ -909,6 +909,441 @@ Proof
       gvs [INSERT2_lemma] ]
 QED
 
+(* -------------------------------------------------------------------------- *)
+(* Arguments for using this as a simp rule: helpful, can simplify stuff       *)
+(*                                                                            *)
+(* Arguments against using this as a simp rule: has a precondition, therefore *)
+(*   the simplifier may spend useless work trying to apply this simp rule in  *)
+(*   cases where it cannot apply it.                                          *)
+(* -------------------------------------------------------------------------- *)
+Theorem DELETE_NON_ELEMENT_RWT_LOCAL[local, simp] = DELETE_NON_ELEMENT_RWT
+
+(* -------------------------------------------------------------------------- *)
+(* If v partitions the graph g, then v does not contain the empty set (by     *)
+(* the definition of partitions/partite that we are using)                    *)
+(* -------------------------------------------------------------------------- *)
+Theorem gen_partite_empty_set_not_in:
+  ∀r g v.
+    gen_partite r g v ⇒ ∅ ∉ v
+Proof
+  rpt strip_tac
+  >> gvs[gen_partite_def]
+  >> gvs[partitions_thm]
+  >> last_x_assum $ qspec_then ‘∅’ assume_tac
+  >> gvs[]
+QED
+
+(* -------------------------------------------------------------------------- *)
+(* If p partitions a finite set S, then S must have at least as many elements *)
+(* as p, because our definition of "partition" requires each component to be  *)
+(* nonempty.                                                                  *)
+(* -------------------------------------------------------------------------- *)
+Theorem partitions_card:
+  ∀p S.
+    p partitions S ∧ FINITE S ⇒ CARD p ≤ CARD S
+Proof
+  rpt strip_tac
+  >> sg ‘FINITE p’
+  >- metis_tac[partitions_FINITE]
+  >> gvs[partitions_thm]
+  >> ntac 3 $ last_x_assum assume_tac
+  >> rpt $ pop_assum mp_tac
+  >> disch_tac
+  >> SPEC_TAC (“S' : α -> bool”, “S' : α -> bool”)
+  >> Induct_on ‘p’ using FINITE_INDUCT
+  >> rpt strip_tac >> gvs[]
+  >> last_x_assum $ qspec_then ‘S' DIFF e’ assume_tac
+  >> sg ‘CARD p ≤ CARD (S' DIFF e)’
+  >- (first_x_assum irule
+      >> rw[]
+      >- metis_tac[]
+      >> gvs[SUBSET_DEF]
+      >> rw[]
+      >- metis_tac[]
+      >> metis_tac[])
+  >> pop_assum mp_tac >> pop_assum kall_tac >> disch_tac
+  >> gvs[CARD_DIFF_EQN]
+  >> gvs[SUB_LEFT_LESS_EQ]
+  >- (sg ‘1 ≤ CARD (S' ∩ e)’
+      >- (last_x_assum $ qspec_then ‘e’ assume_tac
+          >> gvs[]
+          >> Cases_on ‘e’ >> gvs[]
+          >> sg ‘S' = x INSERT (S' DELETE x)’
+          >- gvs[INSERT_DELETE]
+          >> pop_assum $ (fn th => PURE_ONCE_REWRITE_TAC [th])
+          >> PURE_REWRITE_TAC[INSERT_INTER]
+          >> gvs[])
+      >> gvs[]
+     )
+  >> Cases_on ‘e’ >> gvs[]
+  >> Cases_on ‘S'’ >> gvs[]
+QED
+
+(* -------------------------------------------------------------------------- *)
+(* If g is r-partite, then there must be at least r nodes in its graph        *)
+(* -------------------------------------------------------------------------- *)
+Theorem partite_card_nodes:
+  ∀r g.
+    partite r g ⇒ r ≤ CARD (nodes g)
+Proof
+  rpt strip_tac
+  >> gvs[partite_def, partitions_card]
+QED
+
+(* -------------------------------------------------------------------------- *)
+(* A version of gen_partite which allows empty components to be a part of     *)
+(* the partition.                                                             *)
+(*                                                                            *)
+(* Some sources define partiteness to allow empty components, and some        *)
+(* disallow them.                                                             *)
+(*                                                                            *)
+(* I generally find that allowing empty components is more useful.            *)
+(* For example, my application is to build up a special kind of bipartite     *)
+(* graph, starting from the empty graph, and at each step, I will add either  *)
+(* a node of type A, a node of type B, or an edge between a node of type A    *)
+(* and a node of type B. I want to prove that building my graph in this way   *)
+(* will preserve the bipartiteness of my graph, and so any graph built in     *)
+(* this way will be bipartite. The problem is that in the base case, our      *)
+(* graph is not bipartite under the existing definition. Even as we start     *)
+(* adding nodes of type A to this graph, the set {A; B} doesn't form a        *)
+(* partition until we have added at least one node of type B to the graph.    *)
+(* Thus, we'd have to treat these kinds of cases as a special case. This      *)
+(* requires additional working in these cases to ensure that they hold, which *)
+(* is an unnecessary headache. By allowing empty components, the proof        *)
+(* becomes much simpler, because I don't have to worry about these special    *)
+(* cases.                                                                     *)
+(*                                                                            *)
+(* On the other hand, the existing definition could be useful if we want to   *)
+(* neatly classify graphs into levels of bipartiteness. We have the 0-partite *)
+(* graph, then 1-partite graphs, then 2-partite graphs, etc. It could be a    *)
+(* little misleading to characterise a graph as being a "7-partite" graph if  *)
+(* the graph can be more precisely characterised as a "2-partite" graph.      *)
+(* After all, it is quite different in character to a 7-partite graph that    *)
+(* actually requires a minimum of 7 partitions.                               *)
+(*                                                                            *)
+(* The "ea" in this name stands for "empty allowed". I initially considered   *)
+(* the suffix "alt", but that suffix is too generic and is already being used *)
+(* in another unrelated theorem.                                              *)
+(*                                                                            *)
+(* If we were to enforce CARD v = r, then {{}, {}} wouldn't be a valid        *)
+(* partition into two sets, because sets don't allow duplicates and so this   *)
+(* would be equivalent to {{}}, which is a partition into one set, not into   *)
+(* two sets. Therefore, we only encforce CARD v ≤ r, and assume that the      *)
+(* remaining cardinality is made up by empty sets.                            *)
+(*                                                                            *)
+(* This makes me worry about another scenario: what if through some           *)
+(* catastrophic disaster, multiple identical sets are added to the partition? *)
+(* Then only one of them would be added, and the partition may be detected as *)
+(* being valid, for example if only one was initially intended, but then it   *)
+(* ended up being duplicated through a bug. And surely it shouldn't be        *)
+(* considered a valid partition in this scenario.                             *)
+(* -------------------------------------------------------------------------- *)
+Definition gen_partite_ea :
+  gen_partite_ea r (g :fsgraph) v ⇔ CARD v ≤ r ∧
+                                    (let
+                                       w = v DELETE ∅
+                                     in
+                                       gen_partite (CARD w) g w
+                                    )
+End
+
+(* -------------------------------------------------------------------------- *)
+(* Definition of gen_partite_ea not expressed in terms of any other           *)
+(* partite-related definitions.                                               *)
+(* -------------------------------------------------------------------------- *)
+Theorem gen_partite_ea_def = REWRITE_RULE [gen_partite_def] gen_partite_ea
+
+(* -------------------------------------------------------------------------- *)
+(* Conversion from gen_partite_ea to gen_partite                              *)
+(* -------------------------------------------------------------------------- *)
+Theorem gen_partite_ea_gen_partite = gen_partite_ea
+
+(* -------------------------------------------------------------------------- *)
+(* Conversion from gen_partite to gen_partite_ea                              *)
+(* -------------------------------------------------------------------------- *)
+Theorem gen_partite_gen_partite_ea:
+  ∀r g v.
+    gen_partite r g v ⇔ gen_partite_ea r g v ∧ ∅ ∉ v ∧ CARD v = r
+Proof
+  rpt strip_tac
+  >> gvs[gen_partite_ea]
+  >> EQ_TAC
+  >- (rpt strip_tac
+      >- gvs[gen_partite_def]
+      >- (‘∅ ∉ v’ by metis_tac[gen_partite_empty_set_not_in]
+          >> gvs[gen_partite_def])
+      >- metis_tac[gen_partite_empty_set_not_in]
+      >- gvs[gen_partite_def]
+     )
+  >> rpt strip_tac >> gvs[]
+QED
+
+(* -------------------------------------------------------------------------- *)
+(* A partition of a finite simple graph with empty components allowed has a   *)
+(* finite number of components (we can't have empty components multiple times *)
+(* as our partitions consists of a set of sets, and sets cannot have          *)
+(* duplicates)                                                                *)
+(* -------------------------------------------------------------------------- *)
+Theorem gen_partite_ea_finite:
+  ∀r g v.
+    gen_partite_ea r g v ⇒ FINITE v
+Proof
+  rpt strip_tac
+  >> gvs[gen_partite_ea_def]
+  >> Cases_on ‘∅ ∉ v’ >> gvs[]
+  >- metis_tac[partitions_FINITE, GEN_ALL FINITE_nodes]
+  >> sg ‘FINITE (v DELETE ∅)’
+  >- metis_tac[partitions_FINITE, GEN_ALL FINITE_nodes]
+  >> gvs[]
+QED
+
+(* -------------------------------------------------------------------------- *)
+(* A partition of a finite simple graph has a finite number of components     *)
+(* -------------------------------------------------------------------------- *)
+Theorem gen_partite_finite:
+  ∀r g v.
+    gen_partite r g v ⇒ FINITE v
+Proof
+  rpt strip_tac
+  >> gvs[gen_partite_gen_partite_ea]
+  >> irule gen_partite_ea_finite
+  >> metis_tac[]
+QED
+
+(* -------------------------------------------------------------------------- *)
+(* If the partite number of a graph is 0, then the graph has no nodes and     *)
+(* the partition (allowing empty components) is empty                         *)
+(* -------------------------------------------------------------------------- *)
+Theorem gen_partite_ea_0:
+  ∀g v.
+    gen_partite_ea 0 g v ⇔ nodes g = ∅ ∧ v = ∅
+Proof
+  rpt strip_tac
+  >> EQ_TAC >> rw[]
+  >- (‘FINITE v’ by metis_tac[gen_partite_ea_finite]
+      >> gvs[gen_partite_ea_def])
+  >- (‘FINITE v’ by metis_tac[gen_partite_ea_finite]
+      >> gvs[gen_partite_ea_def])
+  >- gvs[gen_partite_ea_def]
+QED
+
+(* -------------------------------------------------------------------------- *)
+(* If the partite number of a graph is 0, then the graph has no nodes and     *)
+(* the partition is empty                                                     *)
+(* -------------------------------------------------------------------------- *)
+Theorem gen_partite_0:
+  ∀g v.
+    gen_partite 0 g v ⇔ nodes g = ∅ ∧ v = ∅
+Proof
+  rpt strip_tac
+  >> gvs[gen_partite_gen_partite_ea]
+  >> gvs[gen_partite_ea_0]
+  >> EQ_TAC >> rw[]
+QED
+
+(* -------------------------------------------------------------------------- *)
+(* Version of partite which allows for empty components (ea = empty allowed)  *)
+(* -------------------------------------------------------------------------- *)
+Definition partite_ea :
+  partite_ea r (g :fsgraph) ⇔ ∃v. gen_partite_ea r g v
+End
+
+(* -------------------------------------------------------------------------- *)
+(* Definition of partite_ea which does not rely on any other                  *)
+(* partite-related definitions                                                *)
+(* -------------------------------------------------------------------------- *)
+Theorem partite_ea_def = REWRITE_RULE [gen_partite_ea_def] partite_ea
+
+(* -------------------------------------------------------------------------- *)
+(* If a partition exists, then an equivalent partition exists without the     *)
+(* empty set in it                                                            *)
+(* -------------------------------------------------------------------------- *)
+Theorem partition_delete_empty:
+  ∀r g v.
+    gen_partite_ea r g v ⇔ gen_partite_ea r g (v DELETE ∅) ∧ CARD v ≤ r
+Proof  
+  rpt strip_tac
+  >> gvs[gen_partite_ea_gen_partite]
+  >> EQ_TAC >> rw[]
+  >- (sg ‘FINITE (v DELETE ∅)’
+      >- metis_tac[gen_partite_finite]
+      >> Cases_on ‘∅ ∈ v’ >> gvs[]
+     )
+QED
+
+(* -------------------------------------------------------------------------- *)
+(* Deleting the empty set from the sets making up a union won't change the    *)
+(* overall union.                                                             *)
+(* -------------------------------------------------------------------------- *)
+Theorem BIGUNION_DELETE_EMPTY[simp]:
+  ∀S. BIGUNION (S DELETE ∅) = BIGUNION S
+Proof
+  rpt strip_tac
+  >> Cases_on ‘∅ ∈ S'’ >> gvs[]
+  >> drule INSERT_DELETE
+  >> rpt strip_tac
+  >> pop_assum (fn th => PURE_ONCE_REWRITE_TAC[GSYM th])
+  >> gvs[]
+QED
+
+(* -------------------------------------------------------------------------- *)
+(* The union of the partition of a graph makes up the nodes of that graph     *)
+(* -------------------------------------------------------------------------- *)
+Theorem gen_partite_ea_bigunion:
+  ∀r g v.
+    gen_partite_ea r g v ⇒ BIGUNION v = nodes g
+Proof
+  rpt strip_tac
+  >> gvs[gen_partite_ea_def]
+  >> PURE_ONCE_REWRITE_TAC[GSYM BIGUNION_DELETE_EMPTY]
+  >> irule partitions_covers
+  >> gvs[]
+QED
+
+(* -------------------------------------------------------------------------- *)
+(* The union of the partition of a graph makes up the nodes of that graph     *)
+(* -------------------------------------------------------------------------- *)
+Theorem gen_partite_bigunion:
+  ∀r g v.
+    gen_partite r g v ⇒ BIGUNION v = nodes g
+Proof
+  metis_tac[gen_partite_gen_partite_ea, gen_partite_ea_bigunion]
+QED
+
+(* -------------------------------------------------------------------------- *)
+(* If each member of a                                                        *)
+(*                                                                            *)
+(* Could be made more general                                                 *)
+(* -------------------------------------------------------------------------- *)
+Theorem CARD_BIGUNION_LEQ_1:
+  ∀S n.
+    (∀s.
+       s ∈ S ⇒ (FINITE s ∧ CARD s ≤ 1)) ⇒
+    CARD (BIGUNION S) ≤ CARD S
+Proof
+  partition_delete_empty
+  rpt strip_tac
+QED
+
+(* -------------------------------------------------------------------------- *)
+(* If a partition has less elements than nodes in the graph, then there is a  *)
+(* component with at least two elements                                       *)
+(* -------------------------------------------------------------------------- *)
+Theorem gen_partite_ea_pigeonhole_principle:
+  ∀r g v.
+    gen_partite_ea r g v ∧ r < CARD (nodes g) ⇒
+    ∃s. s ∈ v ∧ FINITE s ∧ 2 ≤ CARD s
+Proof
+  PURE_ONCE_REWRITE_TAC[partition_delete_empty]
+  >> rpt strip_tac
+  >> CCONTR_TAC
+  >> gvs[]
+  (* Thanks to Chun Tian for this proof idea using BIGUNION *)
+  >> drule gen_partite_ea_bigunion
+  >> rpt strip_tac
+  >> pop_assum (fn th => gvs[GSYM th])
+  >> sg ‘CARD v < CARD (BIGUNION v)’
+  >- gvs[]
+  >> qsuff_tac ‘CARD (BIGUNION (v DELETE ∅)) = CARD (v DELETE ∅)’
+  >- (rpt strip_tac
+      >> gvs[]
+      >> sg ‘r < CARD v’
+      >- gvs[]
+QED
+
+(* -------------------------------------------------------------------------- *)
+(* If we have a partition which contains the empty component and also         *)
+(* contains a component with at least two elements, then                      *)
+(*                                                                            *)
+(* This helps in converting                                                   *)
+(* -------------------------------------------------------------------------- *)
+
+(* sufficient nodes in the graph, then there exists a partition of the graph  *)
+(* which does not contain an empty component                                  *)
+(* -------------------------------------------------------------------------- *)
+Theorem partition_fill_empty_component:
+  ∀r g v.
+    gen_partite_ea r g v ∧ ∅ ∈ v ⇒ ∃w. gen_partite_ea r g w ∧ 
+                                       
+                                       gen_partite_ea r g v ∧ r < CARD (nodes g) ⇒ ∃w. gen_partite_ea r g w ∧
+                                                                                       CARD w = SUC (CARD v)
+Proof
+QED
+
+
+(* -------------------------------------------------------------------------- *)
+(* Conversion from partite to partite_ea                                      *)
+(* -------------------------------------------------------------------------- *)
+Theorem partite_partite_ea:
+  ∀r g.
+    partite r g ⇔ partite_ea r g ∧ r ≤ CARD (nodes g)
+Proof
+  rpt strip_tac
+  >> EQ_TAC >> rpt strip_tac >> rw[] (* Prove partite ⇒ partite_ea ∧ CARD *)
+  >- (gvs[partite_ea, partite]
+      >> qexists ‘v’
+      >> gvs[gen_partite_gen_partite_ea])
+  >- gvs[partite_card_nodes]
+  >> gvs[partite_ea, partite]
+  (* It is intuitively obvious that if there is a partition of a graph        *)
+  (* allowing empty components and the number of nodes in the graph is at     *)
+  (* least as much as the partite number, then there is a partition of the    *)
+  (* graph disallowing empty components, but this seems tricky to formally    *)
+  (* prove.                                                                   *)
+  (* *)
+  (* We are proving partite_ea ∧ CARD ⇒ partite *)
+  >> rpt $ pop_assum mp_tac >> SPEC_TAC (“g : fsgraph”, “g : fsgraph”)
+  >> SPEC_TAC
+     (“v : (unit + num -> bool) -> bool”, “v : (unit + num -> bool) -> bool”)
+  >> Induct_on ‘r’ >> rpt strip_tac >> gvs[] (* Induct on the partite number *)
+  >- gvs[gen_partite_0, gen_partite_ea_0] (* Partite number 0 is trivial *)
+  >> Cases_on ‘v’ (* Take a component from the partition*)
+  >- gvs[gen_partite_ea_def] (* Empty partition is trivial *)
+  (* If x is nonempty, then we can simply use the same partition as in the
+      induction: this component can be used regards of whether empty
+      components are allowed*)
+  >> Cases_on ‘x ≠ ∅’
+  >- (last_x_assum $ qspecl_then [‘t’, ‘g’] assume_tac (* Use inductive
+      hypothesis on partition excluding x *)
+      >> sg ‘gen_partite_ea r g t’
+      >- (pop_assum kall_tac
+          >> ‘FINITE (x INSERT t)’ by metis_tac[gen_partite_ea_finite]
+          >> gvs[gen_partite_ea_def]
+          >> rw[gen_partite_ea_def]
+          >> sg ‘FINITE t’ >-
+         )
+         qexists ‘x INSERT t’ (* Use the same partition *)
+      >> 
+     )
+QED
+
+(* -------------------------------------------------------------------------- *)
+(* Conversion from partite_ea to partite                                      *)
+(* -------------------------------------------------------------------------- *)
+Theorem partite_ea_partite:
+  ∀r g.
+    partite_ea r g ⇔ (∃s. s ≤ r ∧ partite s g)
+Proof
+QED
+
+Definition gen_bipartite_ea :
+  gen_bipartite_ea (g :fsgraph) A B = gen_partite_ea 2 g {A; B}
+End
+
+Theorem gen_bipartite_ea_def :
+  ∀g A B. gen_bipartite_ea (g :fsgraph) A B ⇔
+            DISJOINT A B ∧ A ∪ B = nodes g ∧
+            ∀n1 n2. {n1;n2} ∈ fsgedges g ⇒
+                        (n1 ∈ A ∧ n2 ∈ B) ∨ (n1 ∈ B ∧ n2 ∈ A)
+Proof
+  gvs[gen_bipartite_ea]
+  >> gvs[gen_partite_ea]
+  >> gvs[GSYM gen_bipartite]
+  >> gvs[gen_bipartite_def]
+  >> rpt strip_tac >> EQ_TAC >> gvs[]
+  >> rpt strip_tac >> gvs[]
+QED
+
 val _ = export_theory();
 val _ = html_theory "fsgraph";
 
