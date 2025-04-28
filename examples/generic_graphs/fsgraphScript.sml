@@ -1328,32 +1328,66 @@ Proof
 QED
 
 (* -------------------------------------------------------------------------- *)
-(* If we have a partition which contains the empty component and also         *)
-(* contains a component with at least two elements, then                      *)
-(*                                                                            *)
-(* This helps in converting                                                   *)
+(* If a partition has less elements than nodes in the graph, then there is a  *)
+(* component with at least two elements                                       *)
 (* -------------------------------------------------------------------------- *)
-
-(* sufficient nodes in the graph, then there exists a partition of the graph  *)
-(* which does not contain an empty component                                  *)
-(* -------------------------------------------------------------------------- *)
-Theorem partition_fill_empty_component:
+Theorem gen_partite_pigeonhole_principle:
   ∀r g v.
-    gen_partite_ea r g v ∧ ∅ ∈ v ⇒ ∃w. gen_partite_ea r g w ∧ 
-                                       
-                                       gen_partite_ea r g v ∧ r < CARD (nodes g) ⇒ ∃w. gen_partite_ea r g w ∧
-                                                                                       CARD w = SUC (CARD v)
+    gen_partite r g v ∧ r < CARD (nodes g) ⇒
+    ∃s. s ∈ v ∧ FINITE s ∧ 2 ≤ CARD s
 Proof
-  rpt strip_tac
+  metis_tac[gen_partite_gen_partite_ea, gen_partite_ea_pigeonhole_principle]
 QED
 
+(* -------------------------------------------------------------------------- *)
+(* If a graph is n-partite, and there are sufficiently many nodes in the      *)
+(* graph, then it is also (n+1)-partite. Helper theorem for the more general  *)
+(* result provided by partite_leq                                             *)
+(* -------------------------------------------------------------------------- *)
+Theorem partite_leq_induct[local]:
+  ∀r g.
+    partite r g ∧ SUC r ≤ CARD (nodes g) ⇒ partite (SUC r) g
+Proof
+  rpt strip_tac
+  >> gvs[partite]
+  >> drule gen_partite_pigeonhole_principle
+  >> rpt strip_tac
+  >> gvs[]
+  >> Cases_on ‘s’ >> gvs[]
+  (* Given the partition for r, we split apart a set with at least 2 elements
+     to get a partition for (SUC r) *)
+  >> qexists ‘{x} INSERT (t INSERT (v DELETE (x INSERT t)))’
+  >> gvs[gen_partite_def]
+  >> 
+
+  >> Cases_on ‘t’ >> gvs[]
+  >> qexists ‘(v DELETE (x INSERT x' INSERT t')) INSERT (x' INSERT t') INSERT {x}’
+QED
+
+(* -------------------------------------------------------------------------- *)
+(* If a graph is n-partite and there are at least m nodes in the graph, then  *)
+(* the graph is also m-partite                                                *)
+(* -------------------------------------------------------------------------- *)
 Theorem partite_leq:
   ∀r g s.
-    partite r g ∧
-    r ≤ s ∧
-    CARD (nodes g) = ⇒
-    partite s g
+    partite r g ∧ r ≤ s ∧ s ≤ CARD (nodes g) ⇒ partite s g
 Proof
+  (* We want to perform induction in the downwards direction, starting from
+     r = s, which is trivial, with each step decreasing the value of r. In
+     order to facilitate this induction, we rewrite the statement we are
+     trying to prove in the following way: *)
+  qsuff_tac ‘∀s g n. partite (s - n) g ∧
+                     (s - n) ≤ s ∧
+                     s ≤ CARD (nodes g)
+                     ⇒ partite s g’
+  >- (rpt strip_tac
+      >> last_x_assum $ qspecl_then [‘s’, ‘g’, ‘s - r’] assume_tac
+      >> gvs[]
+     )
+  (* Perform our induction on n, so that it's going in the correct direction *)
+  >> Induct_on ‘n’ >> gvs[]
+  >> rpt strip_tac
+  >> qspecl_then [‘s - SUC n’, ‘g’] assume_tac
 QED
 
 
