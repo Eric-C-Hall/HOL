@@ -736,6 +736,39 @@ Proof
  >> ASM_SET_TAC []
 QED
 
+(* -------------------------------------------------------------------------- *)
+(* TODO: move comments from prior work                                        *)
+(*                                                                            *)
+(* Uses list not set                                                          *)
+(*                                                                            *)
+(* See https://github.com/HOL-Theorem-Prover/HOL/issues/1465 for detailed     *)
+(* discussion (this page has been archived on archive.org)                    *)
+(*                                                                            *)
+(*                                                                            *)
+(*                                                                            *)
+(* Allows partitions with empty                                               *)
+(* -------------------------------------------------------------------------- *)
+Definition gen_partite_def :
+  gen_partite r (g : fsgraph) (v : (unit + num -> bool) list) <=>
+  let
+    w = (set v DELETE ∅)
+  in 
+    w partitions (nodes g) /\
+    LENGTH v = r /\
+    !n1 n2. {n1;n2} IN fsgedges g ==> part w n1 <> part w n2   
+End
+
+Definition gen_partite_def :
+  ∃f : node -> num.
+    ()
+End
+
+gen_bipartite (g :fsgraph) A B <=>
+DISJOINT A B /\ A <> {} /\ B <> {} /\ A UNION B = nodes g /\
+!n1 n2. {n1;n2} IN fsgedges g ==>
+            (n1 IN A /\ n2 IN B) \/ (n1 IN B /\ n2 IN A)
+End
+
 (* r-partite graphs [2, p.17]
 
    NOTE: ‘partitions’ requires that each partiton must be non-empty. This is not
