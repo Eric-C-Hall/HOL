@@ -737,210 +737,59 @@ Proof
 QED
 
 (* -------------------------------------------------------------------------- *)
-(* TODO: move comments from prior work                                        *)
+(* Gen partite: provides a specific partition which shows that a given graph  *)
+(* is r-partite.                                                              *)
 (*                                                                            *)
-(* Uses list not set                                                          *)
+(* We represent a partition by a function which colours the nodes on the      *)
+(* graph into at most r colours such that no two nodes of the same colour     *)
+(* have an edge between them.                                                 *)
 (*                                                                            *)
-(* See https://github.com/HOL-Theorem-Prover/HOL/issues/1465 for detailed     *)
-(* discussion (this page has been archived on archive.org)                    *)
+(* The previous verison of this definition required that every component of   *)
+(* the partition was nonempty. This version doesn't have this requirement.    *)
+(* It is easier to use the new version to prove things becauase you can avoid *)
+(* performing additional work in the special case where there are empty sets  *)
+(* in the partition.                                                          *)
 (*                                                                            *)
+(* It is no longer sensible to use a "set of sets" definition for the         *)
+(* partition when empty components are allowed, because there may be multiple *)
+(* empty components in the partition, and a set doesn't allow for duplicate   *)
+(* components. Therefore, we changed the representation of a partition: we    *)
+(* decided to represent it by a colouring function, rather than one of the    *)
+(* other options.                                                             *)
 (*                                                                            *)
-(*                                                                            *)
-(* Allows partitions with empty                                               *)
+(* See https://github.com/HOL-Theorem-Prover/HOL/issues/1465 for a detailed   *)
+(* discussion of this change (this page has been archived on archive.org,     *)
+(* although archive.org did not successfully archive the entire page).        *)
 (* -------------------------------------------------------------------------- *)
 Definition gen_partite_def :
-  gen_partite r (g : fsgraph) (v : (unit + num -> bool) list) <=>
-  let
-    w = (set v DELETE ∅)
-  in 
-    w partitions (nodes g) /\
-    LENGTH v = r /\
-    !n1 n2. {n1;n2} IN fsgedges g ==> part w n1 <> part w n2   
+  gen_partite r (g : fsgraph) (f : unit + num -> num) <=>
+  (∀m. m ∈ nodes g ⇒ f m < r) ∧
+  (∀e. e ∈ fsgedges g ⇒ CARD (IMAGE f e) = 2)
 End
 
-Definition gen_partite_def :
-  ∃f : node -> num.
-    ()
-End
+(* -------------------------------------------------------------------------- *)
+(* Gen bipartite: the special case of partite for r = 2                       *)
+(*                                                                            *)
+(* Using an overload instead of a definition minimizes the number of          *)
+(* additional symbols defined and simplifies the process of proof: we only    *)
+(* need to prove a theorem for gen_partite, and it will automatically also be *)
+(* proven for gen_bipartite.                                                  *)
+(* -------------------------------------------------------------------------- *)
+Overload gen_bipartite = “gen_partite 2 g f”;
 
-gen_bipartite (g :fsgraph) A B <=>
-DISJOINT A B /\ A <> {} /\ B <> {} /\ A UNION B = nodes g /\
-!n1 n2. {n1;n2} IN fsgedges g ==>
-            (n1 IN A /\ n2 IN B) \/ (n1 IN B /\ n2 IN A)
-End
+(* -------------------------------------------------------------------------- *)
+(* Partite: when we only care that a partition exists, but we don't care what *)
+(* the specific partition is                                                  *)
+(* -------------------------------------------------------------------------- *)
+Overload partite = “∃f. gen_partite r g f”;
 
-(* r-partite graphs [2, p.17]
+(* -------------------------------------------------------------------------- *)
+(* Bipartite: when we don't care what specific partition we use, and we are   *)
+(* working with a graph that can be split into two components                 *)
+(* -------------------------------------------------------------------------- *)
+Overload bipartite = “∃f. gen_partite 2 g f”;
 
-   NOTE: ‘partitions’ requires that each partiton must be non-empty. This is not
-   explicitly mentioned in the textbook but seems reasonable.
- *)
-Definition gen_partite_def :
-    gen_partite r (g :fsgraph) v <=>
-      v partitions (nodes g) /\ CARD v = r /\
-      !n1 n2. {n1;n2} IN fsgedges g ==> part v n1 <> part v n2
-End
 
-Definition partite :
-    partite r (g :fsgraph) <=> ?v. gen_partite r g v
-End
-
-(* |- !r g.
-        partite r g <=>
-        ?v. v partitions V /\ CARD v = r /\
-            !n1 n2. {n1; n2} IN E ==> part v n1 <> part v n2
- *)
-Theorem partite_def = REWRITE_RULE [gen_partite_def] partite
-
-(* "Instead of '2-partite' one usually says bipartite." *)
-Overload bipartite = “partite 2”
-
-Definition gen_bipartite :
-    gen_bipartite (g :fsgraph) A B = gen_partite 2 g {A; B}
-End
-
-Theorem gen_bipartite_partitions[local] :
-    !g :fsgraph v. gen_partite 2 g v ==> ?A B. gen_bipartite g A B
-Proof
-    rw [gen_partite_def]
- >> ‘FINITE V’ by rw []
- >> ‘FINITE v’ by PROVE_TAC [partitions_FINITE]
- >> gs [CARDEQ2]
- >> qexistsl_tac [‘a’, ‘b’]
- >> rw [gen_bipartite, gen_partite_def]
-QED
-
-Theorem gen_bipartite_def :
-    !g A B. gen_bipartite (g :fsgraph) A B <=>
-            DISJOINT A B /\ A <> {} /\ B <> {} /\ A UNION B = nodes g /\
-            !n1 n2. {n1;n2} IN fsgedges g ==>
-                    (n1 IN A /\ n2 IN B) \/ (n1 IN B /\ n2 IN A)
-Proof
-    rw [gen_bipartite, gen_partite_def]
- >> EQ_TAC >> simp []
- >- (STRIP_TAC \\
-    ‘FINITE V’ by rw [] \\
-     qabbrev_tac ‘v = {A; B}’ \\
-    ‘FINITE v’ by PROVE_TAC [partitions_FINITE] \\
-     fs [CARDEQ2] >> gvs [Abbr ‘v’] \\
-     CONJ_ASM1_TAC (* DISJOINT A B *)
-     >- (MATCH_MP_TAC partitions_DISJOINT \\
-         qexistsl_tac [‘{A; B}’, ‘V’] >> rw []) \\
-     CONJ_TAC (* A <> {} *) >- fs [partitions_PAIR_DISJOINT] \\
-     CONJ_TAC (* B <> {} *) >- fs [partitions_PAIR_DISJOINT] \\
-     CONJ_ASM1_TAC (* A UNION B = V *)
-     >- (Q.PAT_X_ASSUM ‘{A;B} partitions V’ (MP_TAC o MATCH_MP partitions_covers) \\
-         SET_TAC []) \\
-     rpt STRIP_TAC \\
-    ‘n1 IN V /\ n2 IN V /\ n1 <> n2’ by PROVE_TAC [fsgraph_valid] \\
-     Q.PAT_X_ASSUM ‘!n1 n2. P’ (MP_TAC o Q.SPECL [‘n1’, ‘n2’]) >> rw [] \\
-     Cases_on ‘n1 IN A’
-     >- (DISJ1_TAC >> rw [] (* goal: n2 IN B *) \\
-         Know ‘A = part {A; B} n1’
-         >- (MATCH_MP_TAC part_unique \\
-             Q.EXISTS_TAC ‘V’ >> rw []) \\
-         DISCH_THEN (fs o wrap o SYM) \\
-         Cases_on ‘n2 IN A’
-         >- (Know ‘A = part {A; B} n2’
-             >- (MATCH_MP_TAC part_unique \\
-                 Q.EXISTS_TAC ‘V’ >> rw []) \\
-             DISCH_THEN (fs o wrap o SYM)) \\
-         ASM_SET_TAC []) \\
-     simp [] \\
-     CONJ_ASM1_TAC >- ASM_SET_TAC [] \\
-     Know ‘B = part {A; B} n1’
-     >- (MATCH_MP_TAC part_unique \\
-         Q.EXISTS_TAC ‘V’ >> rw []) \\
-     DISCH_THEN (fs o wrap o SYM) \\
-     Cases_on ‘n2 IN B’
-     >- (Know ‘B = part {A; B} n2’
-         >- (MATCH_MP_TAC part_unique \\
-             Q.EXISTS_TAC ‘V’ >> rw []) \\
-         DISCH_THEN (fs o wrap o SYM)) \\
-     ASM_SET_TAC [])
- >> STRIP_TAC
- >> CONJ_ASM1_TAC (* {A; B} partitions V *)
- >- (rw [partitions_PAIR_DISJOINT] >- art [] \\
-     rw [Once DISJOINT_SYM])
- >> rpt STRIP_TAC
- >> ‘n1 IN V /\ n2 IN V /\ n1 <> n2’ by PROVE_TAC [fsgraph_valid]
- >> Q.PAT_X_ASSUM ‘!n1 n2. P’ (MP_TAC o Q.SPECL [‘n1’, ‘n2’]) >> rw []
- >| [ (* goal 1 (of 2) *)
-      CCONTR_TAC >> fs [] \\
-      Know ‘A = part {A; B} n1’
-      >- (MATCH_MP_TAC part_unique \\
-          Q.EXISTS_TAC ‘V’ >> rw []) \\
-      DISCH_THEN (fs o wrap o SYM) \\
-      Know ‘B = part {A; B} n2’
-      >- (MATCH_MP_TAC part_unique \\
-          Q.EXISTS_TAC ‘V’ >> rw []) \\
-      DISCH_THEN (fs o wrap o SYM),
-      (* goal 2 (of 2) *)
-      CCONTR_TAC >> fs [] \\
-      Know ‘B = part {A; B} n1’
-      >- (MATCH_MP_TAC part_unique \\
-          Q.EXISTS_TAC ‘V’ >> rw []) \\
-      DISCH_THEN (fs o wrap o SYM) \\
-      Know ‘A = part {A; B} n2’
-      >- (MATCH_MP_TAC part_unique \\
-          Q.EXISTS_TAC ‘V’ >> rw []) \\
-      DISCH_THEN (fs o wrap o SYM) ]
-QED
-
-Theorem gen_bipartite_alt :
-    !g A B. gen_bipartite (g :fsgraph) A B <=>
-            DISJOINT A B /\ A <> {} /\ B <> {} /\ A UNION B = nodes g /\
-            !e. e IN fsgedges g ==> ?n1 n2. e = {n1; n2} /\ n1 IN A /\ n2 IN B
-Proof
-    rw [gen_bipartite_def]
- >> EQ_TAC >> rw []
- >| [ (* goal 1 (of 2) *)
-      MP_TAC (Q.SPEC ‘g’ alledges_valid) >> rw [] \\
-      Q.PAT_X_ASSUM ‘!n1 n2. P’ (MP_TAC o Q.SPECL [‘a’, ‘b’]) >> rw []
-      >- (qexistsl_tac [‘a’, ‘b’] >> art []) \\
-      qexistsl_tac [‘b’, ‘a’] >> art [] \\
-      rw [INSERT2_lemma],
-      (* goal 2 (of 2) *)
-      Q.PAT_X_ASSUM ‘!e. P’ (MP_TAC o Q.SPEC ‘{n1; n2}’) >> rw [] \\
-      gvs [INSERT2_lemma] ]
-QED
-
-Theorem bipartite_def :
-    !g. bipartite (g :fsgraph) <=>
-        ?A B. DISJOINT A B /\ A <> {} /\ B <> {} /\ A UNION B = nodes g /\
-              !n1 n2. {n1;n2} IN fsgedges g ==>
-                      (n1 IN A /\ n2 IN B) \/ (n1 IN B /\ n2 IN A)
-Proof
-    Q.X_GEN_TAC ‘g’
- >> EQ_TAC
- >- (rw [partite] \\
-    ‘?A B. gen_bipartite g A B’ by METIS_TAC [gen_bipartite_partitions] \\
-     fs [gen_bipartite_def] \\
-     qexistsl_tac [‘A’, ‘B’] >> rw [])
- >> rw [partite]
- >> Q.EXISTS_TAC ‘{A; B}’
- >> REWRITE_TAC [GSYM gen_bipartite]
- >> rw [gen_bipartite_def]
-QED
-
-Theorem bipartite_alt :
-    !g. bipartite (g :fsgraph) <=>
-        ?A B. DISJOINT A B /\ A <> {} /\ B <> {} /\ A UNION B = nodes g /\
-              !e. e IN fsgedges g ==> ?n1 n2. e = {n1; n2} /\ n1 IN A /\ n2 IN B
-Proof
-    rw [bipartite_def]
- >> EQ_TAC >> STRIP_TAC
- >| [ (* goal 1 (of 2) *)
-      qexistsl_tac [‘A’, ‘B’] >> rw [] \\
-      MP_TAC (Q.SPEC ‘g’ alledges_valid) >> rw [] \\
-      Q.PAT_X_ASSUM ‘!n1 n2. P’ (MP_TAC o Q.SPECL [‘a’, ‘b’]) >> rw []
-      >- (qexistsl_tac [‘a’, ‘b’] >> art []) \\
-      qexistsl_tac [‘b’, ‘a’] >> art [] \\
-      rw [INSERT2_lemma],
-      (* goal 2 (of 2) *)
-      qexistsl_tac [‘A’, ‘B’] >> rw [] \\
-      Q.PAT_X_ASSUM ‘!e. P’ (MP_TAC o Q.SPEC ‘{n1; n2}’) >> rw [] \\
-      gvs [INSERT2_lemma] ]
-QED
 
 val _ = export_theory();
 val _ = html_theory "fsgraph";
