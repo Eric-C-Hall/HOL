@@ -791,6 +791,56 @@ Overload bipartite = “∃f. gen_partite 2 g f”;
 
 
 
+(* -------------------------------------------------------------------------- *)
+(* If gen_partite holds, then f defines a partition of the graph's nodes,     *)
+(* represetned as a set of sets                                               *)
+(* -------------------------------------------------------------------------- *)
+Theorem gen_partite_partitions:
+  ∀r g f.
+    gen_partite r g f ⇒
+    let
+      v = IMAGE (λn. PREIMAGE f {n}) (count r) 
+    in
+      v partitions (nodes g) ∧
+      CARD v ≤ r ∧
+      ∀n1 n2. {n1; n2} IN fsgedges g  ==> part v n1 <> part v n2
+Proof
+  rpt strip_tac
+  >> rw[]
+  >- (gvs[]
+     )
+  >- metis_tac[CARD_IMAGE_LE, CARD_COUNT, FINITE_COUNT]
+  >- (gvs[gen_partite_def]
+      >> CCONTR_TAC
+      >> gvs[]
+      >> first_x_assum $ qspec_then ‘{n1; n2}’ assume_tac
+      >> gvs[]
+      >> qsuff_tac ‘f n1 = f n2’ >- gvs[]
+      >> pop_assum kall_tac
+      >> gvs[part_def]
+      >> pop_assum mp_tac
+      >> SELECT_ELIM_TAC
+      >> rw[]
+      >- (qexists ‘PREIMAGE f {f n1}’
+          >> gvs[]
+          >> qexists ‘f n1’
+          >> gvs[]
+          >> first_x_assum $ qspec_then ‘n1’ assume_tac
+          >> metis_tac[fsgraph_valid])
+      >> qpat_x_assum ‘_ = PREIMAGE _ _’ mp_tac
+      >> SELECT_ELIM_TAC
+      >> rw[]
+      >- (qexists ‘PREIMAGE f {f n2}’
+          >> gvs[]
+          >> qexists ‘f n2’
+          >> gvs[]
+          >> last_x_assum $ qspec_then ‘n2’ assume_tac
+          >> metis_tac[fsgraph_valid])
+
+         NTAC 2 $ pop_assum mp_tac
+     )
+QED
+
 val _ = export_theory();
 val _ = html_theory "fsgraph";
 
